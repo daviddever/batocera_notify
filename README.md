@@ -1,89 +1,106 @@
 # batocera_notify
 
-Built to display a window with an image and text for notifications sent from
-something like Home Assistant on your network.
+## Update
 
-There are probabally better ways to do this but was built to work without
-needing anything not availible on default Batocera install.
+Started working on this, but really the best approach would be something in a container like some of the other projects adding onto Batocera. This does work, but isn't the best approach.
 
-Uses python socket to listen for notifications on port 65432
+---
 
-Notifactions are expected in utf-8 in url;Title;Text format (see client.py example)
+Built to display a window with an image and text for notifications sent from something like Home Assistant on your network.
 
-Notifications are displayed using Pygame
+The goal was to get something running with zero extra dependencies beyond what ships on a stock Batocera install.
 
-## Security Warning
+- Listens for notifications over a plain TCP socket on **port 65432**.
+- Expect messages in **UTF‑8** using the format `image_url;Title;Body` (see `client.py`).
+- Renders the notification using **Pygame**.
 
-The notifcations are sent in clear text and there is no authentication for
-accepting connections
+---
 
-- Don't run this unless you are comfortable with any device on your network
-  having access
-- Don't run this unless you are comfortable with any device on your network
-  potentially seeing the notifcation information
+## Security warning
 
-## Instructions
+These notifications are unencrypted and unauthenticated. **Anyone on your LAN can send anything to the box and whatever they send will be displayed.** Only run this if you are comfortable with that.
 
-This can all be done with a shell script called by Batocera's startup script
+---
 
-Set the Display environmental variable `export DISPLAY=:0`
+## Installation / Usage
 
-Copy `notify.py` and `display_script.py` to `/userdata/system` on the Batocera box
-Example using scp
+### 1 – Quick manual test
+
+If you just want to see it work once‑off:
 
 ```bash
-scp notify.py root@your-batocera:notify.py
-scp display_script.py root@your-batocera:display_script.py
+# on the Batocera box
+export DISPLAY=:0
+scp notify.py display_script.py root@batocera:/userdata/system/
+chmod +x /userdata/system/notify.py /userdata/system/display_script.py
+
+# still on the Batocera box
+cd /userdata/system
+./notify.py &
 ```
 
-Set the permissions on both scripts to allow exectution
+Now fire up `client.py` (or the Home‑Assistant shell_command shown below) from another machine and you should get a pop‑up.
 
-```bash
-chmod +x notify.py
-chmod +x display_script.py
-```
+### 2 – Run automatically at boot (contribution from **@Selim042**)
 
-Start the script
+Thanks to [@Selim042](https://github.com/daviddever/batocera_notify/issues/1) for working this out and writing it up.
 
-`./notify.py &`
+1. **Create a tiny service script** at `/userdata/system/services/notifications`:
 
-## Sending a notifications
+   ```bash
+   #!/bin/bash
+   export DISPLAY=:0
+   /userdata/system/services/notify.py &
+   ```
+
+2. **Copy the project files** into that same folder:
+
+   ```bash
+   cp notify.py display_script.py /userdata/system/services/
+   ```
+
+3. **Mark everything executable** so Batocera will run it:
+
+   ```bash
+   chmod +x /userdata/system/services/{notifications,notify.py,display_script.py}
+   ```
+
+4. Reboot (or run `batocera-services restart`) and the notification service will be active from then on.
+
+> **Heads‑up – quirks we noticed**\
+> • The two Python files have to live in `/userdata/system/services/`; placing them in `/userdata/system` breaks their relative imports.\
+> • Batocera complains about the “improperly named services” (because the files end in `.py`), but the service still works and the errors are not shown in the UI.
+
+---
+
+## Sending a notification
 
 ### Using Python
 
-Once the script is running the `client.py` script shows an example of how to
-send a notification from a remote computer. The notifcation consists of a url to
-an image that the Batocera box has access to download with a web request, a
-Title heading and a text line.
+`client.py` shows a minimal example that connects to the socket and writes one message:
 
-Edit the `client.py` script and add your Batocera boxes address and the url, Title
-and text for your notfication and run the script.
+```python
+# edit these first
+BATOCERA_IP = "192.168.1.123"
+PORT        = 65432
 
-### Simple Home Assistant Example
-
-This is the simplest way to test that things are working.
-
-First copy the `ha_batocera_notify.py` script to somewhere Home Assistant can access
-it and make sure it has execute permissions.
-
-Then add a `shell_command` entry to the Home Assistant `configuration.yaml` adding
-your Batocera and Home Assistant address information.
-
-```yaml
-shell_command:
-  batocera_notification: "/config/ha_batocera_notify.py <BATOCERA ADDRESS> 65432 'http://<HOME ASSISTANT ADDRESS:8123/local/<YOUR PNG IMAGE";Home Assistant;Hello World'"
+IMAGE_URL = "http://…/picture.png"
+TITLE      = "Hello from Python"
+BODY       = "It worked!"
 ```
 
-Restart Home Assistant (reloading the YAML config files option does not appear
-to work for changes to `configuration.yaml`)
+Run the script and a pop‑up should appear on‑screen.
 
-Go to Developer Tools --> Services and find the "Shell Command:
-batocera_notification" service
+### From Home Assistant (shell_command)
 
-Click the Call Service button
+1. Copy `ha_batocera_notify.py` somewhere HA can execute it (e.g. `/config/`).
+2. In `configuration.yaml` add:
 
-Assuming everything is setup correctly and the `notify.py` script is running on
-your Batocera box the notifcation should go through.
+   ```yaml
+   shell_command:
+     batocera_notification: >-
+       /config/ha_batocera_notify.py 192.168.1.123 65432 \
+       'http://homeassistant.local:8123/local/example.png;Home Assistant;Hello World'
+   ```
 
-See the [Home Assistant Shell Command integration documentation](https://www.home-assistant.io/integrations/shell_command/#examples)
-for more advanced automation examples
+3. Restart HA, then call the `shell_command.batocera_notification` service from Developer Tools to test.
